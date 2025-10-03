@@ -1,5 +1,6 @@
 #[allow(unused_imports)]
 use std::io::{self, Write};
+use std::{fs, os::unix::fs::PermissionsExt};
 enum Command {
     Echo,
     Exit,
@@ -41,20 +42,48 @@ fn main() {
 
         let mut input = String::new();
 
+        let path = std::env::var("PATH").unwrap_or_default();
+        let path = path.split(':').collect::<Vec<&str>>();
+        // println!("{:?}", path);
+
         stdin.read_line(&mut input).unwrap();
         let input = input.trim();
-        if input.starts_with("type"){
-            let command=  input.strip_prefix("type").unwrap().trim();
+
+        if input.starts_with("type")   {
+            let command = input.strip_prefix("type").unwrap().trim();
             match command {
-                "type" => println!("type is a shell builtin"),
                 "echo" => println!("echo is a shell builtin"),
                 "exit" => println!("exit is a shell builtin"),
-                _ => println!("{}: not found", command)
-                
-            }
+                "type" => println!("type is a shell builtin"),
+                _ => {
+                    let mut path_found = false;
 
-        }
-        else if input.starts_with("echo") {
+                    for path in path.iter() {
+                        let full_path = format!("{}/{}", path, command);
+                        let new_path = std::path::Path::new(&full_path);
+
+                        if new_path.exists() {
+                            match fs::metadata(new_path) {
+                                Ok(metadata) => {
+                                    let permission = metadata.permissions();
+                                    let mode = permission.mode();
+                                    // Check if the file is executable by the user
+                                    if mode & 0o111 != 0 {
+                                        println!("{} is {}", command, new_path.display());
+                                        path_found = true;
+                                        break;
+                                    };
+                                }
+                                Err(_) => {}
+                            }
+                        }
+                    }
+                    if !path_found {
+                        println!("{}: not found", command);
+                    }
+                }
+            }
+        } else if input.starts_with("echo") {
             let res = &input.strip_prefix("echo").unwrap();
 
             println!("{}", res.trim());
