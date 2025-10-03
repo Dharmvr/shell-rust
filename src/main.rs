@@ -34,16 +34,12 @@ fn input_parse(input: &str) -> Command {
     if command == "cd" && args.len() == 1 {
         let path = args[0];
         return Command::CD(path.to_string());
-    }else if command =="pwd" && args.len()==0 {
+    } else if command == "pwd" && args.len() == 0 {
         match std::env::current_dir() {
-            Ok(path)=> Command::PWD(path.display().to_string()),
-            Err(_) =>    Command::Unknown(input.trim().to_string())
-            
+            Ok(path) => Command::PWD(path.display().to_string()),
+            Err(_) => Command::Unknown(input.trim().to_string()),
         }
-        
-    }
-    
-     else if command == "echo" {
+    } else if command == "echo" {
         return Command::Echo(args.iter().map(|s| s.to_string()).collect());
     } else if command == "exit" && args.len() == 1 && args[0] == "0" {
         return Command::Exit;
@@ -109,10 +105,15 @@ fn handle_unknown(input: &str) {
     println!("{}: command not found", input.trim());
 }
 fn handle_cd(path: &str) {
-    match std::env::set_current_dir(path) {
-        Ok(_) => {
-        
-        }
+    let mut path = path.to_string();
+
+    let home_dir = std::env::var("HOME").unwrap_or_default();
+    if path.starts_with("~") {
+        path = home_dir + &path[1..];
+    }
+
+    match std::env::set_current_dir(&path) {
+        Ok(_) => {}
         Err(_) => {
             println!("cd: {}: No such file or directory", path);
         }
