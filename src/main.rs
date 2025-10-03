@@ -11,14 +11,23 @@ fn main() {
     let stdin = io::stdin();
     
     let mut input = String::new();
-   
-    stdin.read_line(&mut input).unwrap();
      
     
-    if input.trim() =="exit 0" {
+    stdin.read_line(&mut input).unwrap();
+    let  input = input.trim(); 
+    if input.starts_with("echo") {
+        let res =&input.strip_prefix("echo").unwrap();
+
+        println!("{}",res.trim() );
+    }
+   
+    else if input.trim() =="exit 0" {
         return;
     }
+    else {
+        println!("{}: command not found",input.trim())
+    }
     
-    println!("{}: command not found", input.trim());
+   
     }
 }
