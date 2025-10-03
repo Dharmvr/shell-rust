@@ -90,7 +90,45 @@ fn main() {
         } else if input.trim() == "exit 0" {
             return;
         } else {
-            println!("{}: command not found", input.trim())
+             let commadns = input.split_whitespace().collect::<Vec<&str>>();
+             let path_command = commadns[0];  
+             let mut path_found = false;
+             for path in path.iter() {
+                let full_path = format!("{}/{}", path, path_command);
+                let new_path = std::path::Path::new(&full_path);
+
+                if new_path.exists() {
+                    match fs::metadata(new_path) {
+                        Ok(metadata) => {
+                            let permission = metadata.permissions();
+                            let mode = permission.mode();
+                            // Check if the file is executable by the user
+                            if mode & 0o111 != 0 {
+                                match std::process::Command::new(path_command)
+                                    .args(&commadns[1..])
+                                    .spawn()
+                                {
+                                    Ok(mut child) => {
+                                        
+                                        child.wait().expect("failed to wait on child");
+                                        path_found = true;
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to execute {}: {}", input, e);
+                                    }
+                                }
+                                break;
+                            };
+                        }
+                        Err(_) => {}
+                    }
+                }
+            
+           
         }
+          if !path_found {
+                println!("{}: command not found", input.trim())
+             }
     }
-}
+}}
