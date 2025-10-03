@@ -10,7 +10,8 @@ enum Command {
     Type(TypeCommand),
     External { program: String, args: Vec<String> },
     Unknown(String),
-    PWD(String)
+    PWD(String),
+    CD(String),
 }
 #[derive(Debug, PartialEq)]
 enum TypeCommand {
@@ -19,6 +20,7 @@ enum TypeCommand {
     Exit,
     Type,
     External(String),
+    CD,
 }
 
 fn input_parse(input: &str) -> Command {
@@ -29,17 +31,19 @@ fn input_parse(input: &str) -> Command {
     }
     let command = i_vec[0];
     let args = i_vec[1..].to_vec();
-
-    if command == "pwd" && args.is_empty() {
+    if command == "cd" && args.len() == 1 {
+        let path = args[0];
+        return Command::CD(path.to_string());
+    }else if command =="pwd" && args.len()==0 {
         match std::env::current_dir() {
-            Ok(path) => {
-                return Command::PWD(path.display().to_string());
-            }
-            Err(_) => {
-                return Command::Unknown(input.trim().to_string());
-            }
+            Ok(path)=> Command::PWD(path.display().to_string()),
+            Err(_) =>    Command::Unknown(input.trim().to_string())
+            
         }
-    } else if command == "echo" {
+        
+    }
+    
+     else if command == "echo" {
         return Command::Echo(args.iter().map(|s| s.to_string()).collect());
     } else if command == "exit" && args.len() == 1 && args[0] == "0" {
         return Command::Exit;
@@ -47,6 +51,7 @@ fn input_parse(input: &str) -> Command {
         if args.len() == 1 {
             let cmd = args[0];
             match cmd {
+                "cd" => return Command::Type(TypeCommand::CD),
                 "pwd" => return Command::Type(TypeCommand::PWD),
                 "echo" => return Command::Type(TypeCommand::Echo),
                 "exit" => return Command::Type(TypeCommand::Exit),
@@ -103,6 +108,16 @@ fn handle_exit() {
 fn handle_unknown(input: &str) {
     println!("{}: command not found", input.trim());
 }
+fn handle_cd(path: &str) {
+    match std::env::set_current_dir(path) {
+        Ok(_) => {
+        
+        }
+        Err(_) => {
+            println!("cd: {}: No such file or directory", path);
+        }
+    }
+}
 
 fn main() {
     // Uncomment this block to pass the first stage
@@ -117,10 +132,12 @@ fn main() {
 
         stdin.read_line(&mut input).unwrap();
         match input_parse(&input) {
+            Command::CD(path) => handle_cd(&path),
             Command::PWD(path) => println!("{}", path),
             Command::Echo(args) => handle_echo(&args.join(" ")),
             Command::Exit => handle_exit(),
             Command::Type(cmd) => match cmd {
+                TypeCommand::CD => println!("cd is a shell builtin"),
                 TypeCommand::PWD => println!("pwd is a shell builtin"),
                 TypeCommand::Echo => println!("echo is a shell builtin"),
                 TypeCommand::Exit => println!("exit is a shell builtin"),
@@ -136,17 +153,16 @@ fn main() {
             },
             Command::External { program, args } => {
                 let path = find_exec_function(&program);
-         
+
                 if !path.is_empty() {
                     match std::process::Command::new(&program).args(args).spawn() {
                         Ok(mut child) => {
                             child.wait().expect("Failed to wait on child process");
                         }
                         Err(_e) => {
-                             println!("{}: command not found", &program);
+                            println!("{}: command not found", &program);
                         }
                     }
-                   
                 } else {
                     println!("{}: command not found", program);
                 }
