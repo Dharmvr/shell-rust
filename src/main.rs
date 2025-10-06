@@ -1,4 +1,3 @@
-
 #[allow(unused_imports)]
 use std::io::{self, Write};
 use std::process::Command as ProcessCommand;
@@ -23,24 +22,22 @@ enum TypeCommand {
     Type,
     External(String),
     CD,
-    
 }
 
 fn input_parse(input: &str) -> Command {
     let i_vec = input.split_whitespace().collect::<Vec<&str>>();
-    
+
     if i_vec.is_empty() {
         println!("");
         return Command::Unknown(input.trim().to_string());
     }
     let command = i_vec[0];
     let args = i_vec[1..].to_vec();
-  
+
     if command == "cat" {
         //   println!("{}", command);
         return Command::CAT(input.strip_prefix("cat").unwrap().to_string());
-    }
-    else if command == "cd" && args.len() == 1 {
+    } else if command == "cd" && args.len() == 1 {
         let path = args[0];
         return Command::CD(path.to_string());
     } else if command == "pwd" && args.len() == 0 {
@@ -104,7 +101,9 @@ fn find_exec_function(path: &str) -> String {
 }
 
 fn handle_echo(input: &str) {
+    // println!("Debug: Raw input to handle_echo: {:?}", input);
     let input = handle_single_quote(input);
+    // println!("Debug: Processed input after handle_single_quote: {:?}", input);
     println!("{}", input.trim());
 }
 
@@ -131,20 +130,27 @@ fn handle_cd(path: &str) {
     }
 }
 
-fn handle_single_quote(input:&str) -> String {
+fn handle_single_quote(input: &str) -> String {
     let mut result = String::new();
     let mut in_single_quote = false;
+    let mut double_quote = false;
     let mut chars = input.chars().peekable();
 
     while let Some(&ch) = chars.peek() {
-        if ch == '\'' {
+        if ch == '"' {
+            double_quote = !double_quote;
+            chars.next(); // Consume the quote
+        } else if double_quote {
+            result.push(ch);
+            chars.next(); // Consume the character inside double quotes
+        } else if ch == '\'' {
             in_single_quote = !in_single_quote;
             chars.next(); // Consume the quote
         } else if in_single_quote {
             result.push(ch);
             chars.next(); // Consume the character inside single quotes
         } else {
-            if ch==' ' && result.ends_with(' ') {
+            if ch == ' ' && result.ends_with(' ') {
                 chars.next(); // Skip extra spaces outside single quotes
                 continue;
             }
@@ -153,7 +159,7 @@ fn handle_single_quote(input:&str) -> String {
         }
     }
 
-    result  
+    result
 }
 
 fn handle_cat(args: String) {
@@ -162,13 +168,21 @@ fn handle_cat(args: String) {
         return;
     }
     // println!("{}", args);
-    let mut  new_files= Vec::new();
-    let mut string_args =String::new();
+    let mut new_files = Vec::new();
+    let mut string_args = String::new();
     let mut single_quote = false;
+    let mut double_quote = false;
     for char in args.chars() {
-        if char == '\'' {
+        if char == '"' {
+            double_quote = !double_quote;
+
+            continue;
+        } else if double_quote {
+            string_args.push(char);
+            continue;
+        } else if char == '\'' {
             single_quote = !single_quote;
-            
+
             continue;
         }
         if char == ' ' && !single_quote {
@@ -185,8 +199,8 @@ fn handle_cat(args: String) {
         new_files.push(string_args.strip_suffix("\n").unwrap().to_string());
     }
     // println!("{:?}", new_files);
-   for file in new_files {
-    //    println!("{}", file);
+    for file in new_files {
+        //    println!("{}", file);
         match fs::read_to_string(&file) {
             Ok(contents) => {
                 print!("{}", contents);
@@ -195,12 +209,8 @@ fn handle_cat(args: String) {
                 println!("cat: {}: No such file or directory", file);
             }
         }
-    } 
-
-
-    
+    }
 }
-
 
 fn main() {
     // Uncomment this block to pass the first stage
@@ -215,13 +225,12 @@ fn main() {
 
         stdin.read_line(&mut input).unwrap();
         match input_parse(&input) {
-            Command::CAT(args)=> handle_cat(args),
+            Command::CAT(args) => handle_cat(args),
             Command::CD(path) => handle_cd(&path),
             Command::PWD(path) => println!("{}", path),
             Command::Echo(args) => handle_echo(&args),
             Command::Exit => handle_exit(),
             Command::Type(cmd) => match cmd {
-               
                 TypeCommand::CD => println!("cd is a shell builtin"),
                 TypeCommand::PWD => println!("pwd is a shell builtin"),
                 TypeCommand::Echo => println!("echo is a shell builtin"),
