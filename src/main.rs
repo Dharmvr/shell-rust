@@ -1,3 +1,4 @@
+
 #[allow(unused_imports)]
 use std::io::{self, Write};
 use std::process::Command as ProcessCommand;
@@ -5,13 +6,14 @@ use std::{fs, os::unix::fs::PermissionsExt};
 
 #[derive(Debug, PartialEq)]
 enum Command {
-    Echo(Vec<String>),
+    Echo(String),
     Exit,
     Type(TypeCommand),
     External { program: String, args: Vec<String> },
     Unknown(String),
     PWD(String),
     CD(String),
+    CAT(String),
 }
 #[derive(Debug, PartialEq)]
 enum TypeCommand {
@@ -21,17 +23,24 @@ enum TypeCommand {
     Type,
     External(String),
     CD,
+    
 }
 
 fn input_parse(input: &str) -> Command {
     let i_vec = input.split_whitespace().collect::<Vec<&str>>();
+    
     if i_vec.is_empty() {
         println!("");
         return Command::Unknown(input.trim().to_string());
     }
     let command = i_vec[0];
     let args = i_vec[1..].to_vec();
-    if command == "cd" && args.len() == 1 {
+  
+    if command == "cat" {
+        //   println!("{}", command);
+        return Command::CAT(input.strip_prefix("cat").unwrap().to_string());
+    }
+    else if command == "cd" && args.len() == 1 {
         let path = args[0];
         return Command::CD(path.to_string());
     } else if command == "pwd" && args.len() == 0 {
@@ -40,13 +49,14 @@ fn input_parse(input: &str) -> Command {
             Err(_) => Command::Unknown(input.trim().to_string()),
         }
     } else if command == "echo" {
-        return Command::Echo(args.iter().map(|s| s.to_string()).collect());
+        return Command::Echo(input.strip_prefix("echo").unwrap().to_string());
     } else if command == "exit" && args.len() == 1 && args[0] == "0" {
         return Command::Exit;
     } else if command == "type" {
         if args.len() == 1 {
             let cmd = args[0];
             match cmd {
+                // "cat" => return Command::Type(TypeCommand::CAT),
                 "cd" => return Command::Type(TypeCommand::CD),
                 "pwd" => return Command::Type(TypeCommand::PWD),
                 "echo" => return Command::Type(TypeCommand::Echo),
@@ -94,6 +104,7 @@ fn find_exec_function(path: &str) -> String {
 }
 
 fn handle_echo(input: &str) {
+    let input = handle_single_quote(input);
     println!("{}", input.trim());
 }
 
@@ -120,6 +131,77 @@ fn handle_cd(path: &str) {
     }
 }
 
+fn handle_single_quote(input:&str) -> String {
+    let mut result = String::new();
+    let mut in_single_quote = false;
+    let mut chars = input.chars().peekable();
+
+    while let Some(&ch) = chars.peek() {
+        if ch == '\'' {
+            in_single_quote = !in_single_quote;
+            chars.next(); // Consume the quote
+        } else if in_single_quote {
+            result.push(ch);
+            chars.next(); // Consume the character inside single quotes
+        } else {
+            if ch==' ' && result.ends_with(' ') {
+                chars.next(); // Skip extra spaces outside single quotes
+                continue;
+            }
+            result.push(ch);
+            chars.next(); // Consume the character outside single quotes
+        }
+    }
+
+    result  
+}
+
+fn handle_cat(args: String) {
+    if args.is_empty() {
+        println!("cat: missing file operand");
+        return;
+    }
+    // println!("{}", args);
+    let mut  new_files= Vec::new();
+    let mut string_args =String::new();
+    let mut single_quote = false;
+    for char in args.chars() {
+        if char == '\'' {
+            single_quote = !single_quote;
+            
+            continue;
+        }
+        if char == ' ' && !single_quote {
+            if !string_args.is_empty() {
+                new_files.push(string_args.to_string());
+                string_args = String::new();
+            }
+        } else {
+            string_args.push(char);
+        }
+    }
+    // println!("{}", string_args);
+    if !string_args.is_empty() {
+        new_files.push(string_args.strip_suffix("\n").unwrap().to_string());
+    }
+    // println!("{:?}", new_files);
+   for file in new_files {
+    //    println!("{}", file);
+        match fs::read_to_string(&file) {
+            Ok(contents) => {
+                print!("{}", contents);
+            }
+            Err(_) => {
+                println!("cat: {}: No such file or directory", file);
+            }
+        }
+    } 
+
+
+    
+}
+
+
 fn main() {
     // Uncomment this block to pass the first stage
     loop {
@@ -133,11 +215,13 @@ fn main() {
 
         stdin.read_line(&mut input).unwrap();
         match input_parse(&input) {
+            Command::CAT(args)=> handle_cat(args),
             Command::CD(path) => handle_cd(&path),
             Command::PWD(path) => println!("{}", path),
-            Command::Echo(args) => handle_echo(&args.join(" ")),
+            Command::Echo(args) => handle_echo(&args),
             Command::Exit => handle_exit(),
             Command::Type(cmd) => match cmd {
+               
                 TypeCommand::CD => println!("cd is a shell builtin"),
                 TypeCommand::PWD => println!("pwd is a shell builtin"),
                 TypeCommand::Echo => println!("echo is a shell builtin"),
