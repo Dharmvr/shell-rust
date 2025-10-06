@@ -144,8 +144,17 @@ fn handle_single_quote(input: &str) -> String {
             double_quote = !double_quote;
             chars.next(); // Consume the quote
         } else if double_quote {
-            result.push(ch);
-            chars.next();
+            if ch == '\\' {
+                chars.next(); // Consume the backslash
+                if let Some(&next_ch) = chars.peek() {
+                    result.push(next_ch);
+                    chars.next(); // Consume the escaped character
+                    continue;
+                }
+            } else {
+                result.push(ch);
+                chars.next();
+            }
             // Consume the character inside double quotes
         } else if ch == '\'' {
             in_single_quote = !in_single_quote;
@@ -159,7 +168,7 @@ fn handle_single_quote(input: &str) -> String {
                 continue;
             }
 
-            if ch=='\\'{
+            if ch == '\\' {
                 chars.next(); // Consume the backslash
                 if let Some(&next_ch) = chars.peek() {
                     result.push(next_ch);
@@ -186,11 +195,12 @@ fn handle_cat(args: String) {
     let mut single_quote = false;
     let mut double_quote = false;
     for char in args.chars() {
-        if char == '"' {
+        if char == '"' && !single_quote {
             double_quote = !double_quote;
 
             continue;
         } else if double_quote {
+            
             string_args.push(char);
             continue;
         } else if char == '\'' {
