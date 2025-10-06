@@ -13,6 +13,7 @@ enum Command {
     PWD(String),
     CD(String),
     CAT(String),
+    EXECCAT(String),
 }
 #[derive(Debug, PartialEq)]
 enum TypeCommand {
@@ -33,8 +34,9 @@ fn input_parse(input: &str) -> Command {
     }
     let command = i_vec[0];
     let args = i_vec[1..].to_vec();
-
-    if command == "cat" {
+    if input.starts_with("'") || input.starts_with("\"") {
+        return Command::EXECCAT(args[args.len() - 1].to_string());
+    } else if command == "cat" {
         //   println!("{}", command);
         return Command::CAT(input.strip_prefix("cat").unwrap().to_string());
     } else if command == "cd" && args.len() == 1 {
@@ -200,7 +202,6 @@ fn handle_cat(args: String) {
 
             continue;
         } else if double_quote {
-            
             string_args.push(char);
             continue;
         } else if char == '\'' {
@@ -235,6 +236,21 @@ fn handle_cat(args: String) {
     }
 }
 
+fn handle_exec_cat(args: String) {
+    if args.is_empty() {
+        println!("cat: missing file operand");
+        return;
+    }
+    let file = fs::read_to_string(&args);
+    match file {
+        Ok(contents) => {
+            print!("{}", contents);
+        }
+        Err(_) => {
+            println!("cat: {}: No such file or directory", args);
+        }
+    }
+}
 fn main() {
     // Uncomment this block to pass the first stage
     loop {
@@ -248,6 +264,7 @@ fn main() {
 
         stdin.read_line(&mut input).unwrap();
         match input_parse(&input) {
+            Command::EXECCAT(args) => handle_exec_cat(args),
             Command::CAT(args) => handle_cat(args),
             Command::CD(path) => handle_cd(&path),
             Command::PWD(path) => println!("{}", path),
