@@ -140,7 +140,7 @@ fn handle_single_quote(input: &str) -> String {
     let mut chars = input.chars().peekable();
 
     while let Some(&ch) = chars.peek() {
-        if ch == '"' {
+        if ch == '"' && !in_single_quote {
             double_quote = !double_quote;
             chars.next(); // Consume the quote
         } else if double_quote {
