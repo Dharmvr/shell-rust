@@ -103,7 +103,10 @@ fn find_exec_function(path: &str) -> String {
 fn handle_echo(input: &str) {
     // println!("Debug: Raw input to handle_echo: {:?}", input);
     let input = handle_single_quote(input);
-    // println!("Debug: Processed input after handle_single_quote: {:?}", input);
+    // println!(
+    //     "Debug: Processed input after handle_single_quote: {:?}",
+    //     input
+    // );
     println!("{}", input.trim());
 }
 
@@ -142,7 +145,8 @@ fn handle_single_quote(input: &str) -> String {
             chars.next(); // Consume the quote
         } else if double_quote {
             result.push(ch);
-            chars.next(); // Consume the character inside double quotes
+            chars.next();
+            // Consume the character inside double quotes
         } else if ch == '\'' {
             in_single_quote = !in_single_quote;
             chars.next(); // Consume the quote
@@ -153,6 +157,15 @@ fn handle_single_quote(input: &str) -> String {
             if ch == ' ' && result.ends_with(' ') {
                 chars.next(); // Skip extra spaces outside single quotes
                 continue;
+            }
+
+            if ch=='\\'{
+                chars.next(); // Consume the backslash
+                if let Some(&next_ch) = chars.peek() {
+                    result.push(next_ch);
+                    chars.next(); // Consume the escaped character
+                    continue;
+                }
             }
             result.push(ch);
             chars.next(); // Consume the character outside single quotes
