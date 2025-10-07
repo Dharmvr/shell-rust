@@ -112,12 +112,17 @@ fn handle_ls(from: &str, to: &str) {
         from = from.trim_start_matches("-1").trim();
         in_line = true;
     }
+    let mut redirect_tot_err = false;
+    if from.ends_with("2") {
+        from = from.strip_suffix("2").unwrap();
+        redirect_tot_err = true;
+    }
     // println!("Debug: Argument to handle_ls - from: {:?}, to: {:?}", from, to);
     if from.is_empty() {
         from = ".";
     }
 
-    let entries = fs::read_dir(from);
+    let entries = fs::read_dir(from.trim());
     match entries {
         Ok(entries) => {
             let mut names = Vec::new();
@@ -151,7 +156,19 @@ fn handle_ls(from: &str, to: &str) {
             }
         }
         Err(_) => {
-            println!("ls: cannot access '{}': No such file or directory", from);
+            if redirect_tot_err {
+                if !to.is_empty() {
+                    let error = format!("ls: {}: No such file or directory", from.trim());
+                    match fs::write(to, error) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            println!("ls: {}: No such file or directory", to);
+                        }
+                    }
+                }
+            } else {
+                println!("ls: cannot access '{}': No such file or directory", from);
+            }
         }
     }
 }
@@ -185,7 +202,13 @@ fn find_exec_function(path: &str) -> String {
 fn handle_echo(arg: &str, files: &str) {
     // println!("Debug: Raw input to handle_echo: {:?}", input);
     // println!("Debug: Argument to handle_echo: {:?}", arg);
-
+    let mut arg = arg;
+    let mut redirect_err = false;
+    // println!("{}",arg);
+    if arg.ends_with("2") {
+        arg = arg.strip_suffix("2").unwrap().trim();
+        redirect_err = true
+    }
     let input = &arg;
     // println!(
     //     "Debug: Processed input after handle_single_quote: {:?}",
@@ -195,12 +218,24 @@ fn handle_echo(arg: &str, files: &str) {
     if files.is_empty() {
         println!("{}", input.trim());
     }
-
+    let mut new_input = input;
     if !files.is_empty() {
-        match fs::write(&files, input.trim()) {
-            Ok(_) => {}
+        if redirect_err {
+            new_input = &"";
+        }
+
+        match fs::write(&files, new_input.trim()) {
+            Ok(_) => {
+                if redirect_err {
+                    println!("{}", input.trim());
+                }
+            }
             Err(_) => {
-                println!("echo: {}: No such file or directory", files);
+                if redirect_err {
+                    println!("{}", input.trim());
+                } else {
+                    println!("echo: {}: No such file or directory", files);
+                }
             }
         }
     }
@@ -282,6 +317,7 @@ fn handle_single_quote(input: &str) -> String {
 
 fn handle_redirect(input: &str) -> (String, String) {
     // Split on '>' or on "1>" (as a substring)
+
     if let Some(idx) = input.find("1>") {
         let command_part = input[..idx].trim();
         let file_part = input[idx + 2..].trim();
@@ -300,11 +336,20 @@ fn handle_cat(args: String) {
         println!("cat: missing file operand");
         return;
     }
-    let (args, file_part) = handle_redirect(&args);
+    let mut redirect_to_err = false;
+    if args.contains("2>") {
+        redirect_to_err = true;
+    }
+    // println!("{}",args);
+    let (mut args, file_part) = handle_redirect(&args);
     // let file_part ="";
     // println!("{}",args);
     // println!("{}", file_part);
     // println!("{}", args);
+
+    if args.ends_with("2") {
+        args = args.strip_suffix("2").unwrap().trim().to_string();
+    }
     let mut new_files = Vec::new();
     let mut string_args = String::new();
     let mut single_quote = false;
@@ -351,8 +396,17 @@ fn handle_cat(args: String) {
 
                 if !file_part.is_empty() {
                     // println!("{}", contents.trim());
-                    match fs::write(&file_part, contents.trim()) {
-                        Ok(_) => {}
+                    let new_cont = if redirect_to_err {
+                        String::from("")
+                    } else {
+                        contents.clone()
+                    };
+                    match fs::write(&file_part, new_cont.trim()) {
+                        Ok(_) => {
+                            if redirect_to_err {
+                                println!("{}",contents.trim());
+                            }
+                        }
                         Err(_) => {
                             println!("cat: {}: No such file or directory 1", file_part);
                             err = true;
@@ -360,9 +414,19 @@ fn handle_cat(args: String) {
                     }
                 }
             }
-            Err(_) => {
-                println!("cat: {}: No such file or directory", file);
-                err = true;
+            Err(_e) => {
+                if redirect_to_err {
+                    match fs::write(&file_part, format!("cat: {}: No such file or directory",file)){
+                        Ok(_)=>{},
+                        Err(_) => {
+                            println!("cat: {}: No such file or directory 1", file_part);
+                            err = true;
+                        }
+                    }
+                } else {
+                    println!("cat: {}: No such file or directory", file);
+                    err = true;
+                }
             }
         }
     }
