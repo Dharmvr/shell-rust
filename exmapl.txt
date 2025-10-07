@@ -1,0 +1,13 @@
+.codecrafters
+.git
+.gitattributes
+.gitignore
+Cargo.lock
+Cargo.toml
+README.md
+codecrafters.yml
+exampl.txt
+exmapl.txt
+src
+target
+your_program.sh

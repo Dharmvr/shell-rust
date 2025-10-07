@@ -1,11 +1,12 @@
 #[allow(unused_imports)]
 use std::io::{self, Write};
-use std::process::Command as ProcessCommand;
+
 use std::{fs, os::unix::fs::PermissionsExt};
 
 #[derive(Debug, PartialEq)]
 enum Command {
-    Echo(String),
+    LS { from: String, to: String },
+    Echo { arg: String, files: String },
     Exit,
     Type(TypeCommand),
     External { program: String, args: Vec<String> },
@@ -25,20 +26,45 @@ enum TypeCommand {
     CD,
 }
 
-fn input_parse(input: &str) -> Command {
-    let i_vec = input.split_whitespace().collect::<Vec<&str>>();
+fn handle_input(input: &str) -> (String, String, String) {
+    let (args, file_part) = handle_redirect(input);
+    let mut new_input = args.splitn(2, " ").map(str::trim);
+    let command = new_input.next().unwrap_or("");
+    let input = new_input.next().unwrap_or("");
+
+    let input = handle_single_quote(&input);
+
+    // println!("Command: {}", command);
+    // println!("Input: {}", input);
+    // println!("File Part: {}", file_part);
+
+    // println!(
+    //     "Debug: Processed input after handle_single_quote: {:?}",
+    //     input
+    // );
+    // println!("{}",file_part);
+    (command.to_string(), input.trim().to_string(), file_part)
+}
+
+fn input_parse(re_input: &str) -> Command {
+    let i_vec = re_input.split_whitespace().collect::<Vec<&str>>();
 
     if i_vec.is_empty() {
         println!("");
-        return Command::Unknown(input.trim().to_string());
+        return Command::Unknown(re_input.trim().to_string());
     }
-    let command = i_vec[0];
+    let (command, input, _file_part) = handle_input(re_input);
+    // let command = i_vec[0];
     let args = i_vec[1..].to_vec();
-    if input.starts_with("'") || input.starts_with("\"") {
+    if re_input.starts_with("'") || re_input.starts_with("\"") {
         return Command::EXECCAT(args[args.len() - 1].to_string());
+    } else if command == "ls" {
+        let from = input.clone();
+        let to = _file_part.clone();
+        return Command::LS { from, to };
     } else if command == "cat" {
         //   println!("{}", command);
-        return Command::CAT(input.strip_prefix("cat").unwrap().to_string());
+        return Command::CAT(re_input.strip_prefix("cat").unwrap().to_string());
     } else if command == "cd" && args.len() == 1 {
         let path = args[0];
         return Command::CD(path.to_string());
@@ -48,7 +74,10 @@ fn input_parse(input: &str) -> Command {
             Err(_) => Command::Unknown(input.trim().to_string()),
         }
     } else if command == "echo" {
-        return Command::Echo(input.strip_prefix("echo").unwrap().to_string());
+        return Command::Echo {
+            arg: input,
+            files: _file_part,
+        };
     } else if command == "exit" && args.len() == 1 && args[0] == "0" {
         return Command::Exit;
     } else if command == "type" {
@@ -73,6 +102,57 @@ fn input_parse(input: &str) -> Command {
         };
     } else {
         return Command::Unknown(input.trim().to_string());
+    }
+}
+
+fn handle_ls(from: &str, to: &str) {
+    let mut from = from;
+    let mut in_line = false;
+    if from.starts_with("-1") {
+        from = from.trim_start_matches("-1").trim();
+        in_line = true;
+    }
+    // println!("Debug: Argument to handle_ls - from: {:?}, to: {:?}", from, to);
+    if from.is_empty() {
+        from = ".";
+    }
+
+    let entries = fs::read_dir(from);
+    match entries {
+        Ok(entries) => {
+            let mut names = Vec::new();
+            for entry in entries {
+                if let Ok(entry) = entry {
+                    if let Ok(file_name) = entry.file_name().into_string() {
+                        names.push(file_name);
+                    }
+                }
+            }
+            names.sort();
+            let joined_names = names.join("\n");
+            if to.is_empty() {
+                for name in names.iter() {
+                    if in_line {
+                        println!("{}", name);
+                    } else {
+                        print!("{}  ", name);
+                    }
+                }
+
+                println!();
+            }
+            if !to.is_empty() {
+                match fs::write(to, &joined_names) {
+                    Ok(_) => {}
+                    Err(_) => {
+                        println!("ls: {}: No such file or directory", to);
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            println!("ls: cannot access '{}': No such file or directory", from);
+        }
     }
 }
 
@@ -102,14 +182,28 @@ fn find_exec_function(path: &str) -> String {
     res
 }
 
-fn handle_echo(input: &str) {
+fn handle_echo(arg: &str, files: &str) {
     // println!("Debug: Raw input to handle_echo: {:?}", input);
-    let input = handle_single_quote(input);
+    // println!("Debug: Argument to handle_echo: {:?}", arg);
+
+    let input = &arg;
     // println!(
     //     "Debug: Processed input after handle_single_quote: {:?}",
     //     input
     // );
-    println!("{}", input.trim());
+    // println!("{}", files);
+    if files.is_empty() {
+        println!("{}", input.trim());
+    }
+
+    if !files.is_empty() {
+        match fs::write(&files, input.trim()) {
+            Ok(_) => {}
+            Err(_) => {
+                println!("echo: {}: No such file or directory", files);
+            }
+        }
+    }
 }
 
 fn handle_exit() {
@@ -186,17 +280,39 @@ fn handle_single_quote(input: &str) -> String {
     result
 }
 
+fn handle_redirect(input: &str) -> (String, String) {
+    // Split on '>' or on "1>" (as a substring)
+    if let Some(idx) = input.find("1>") {
+        let command_part = input[..idx].trim();
+        let file_part = input[idx + 2..].trim();
+        (command_part.to_string(), file_part.to_string())
+    } else if let Some(idx) = input.find('>') {
+        let command_part = input[..idx].trim();
+        let file_part = input[idx + 1..].trim();
+        (command_part.to_string(), file_part.to_string())
+    } else {
+        (input.trim().to_string(), "".to_string())
+    }
+}
+
 fn handle_cat(args: String) {
     if args.is_empty() {
         println!("cat: missing file operand");
         return;
     }
+    let (args, file_part) = handle_redirect(&args);
+    // let file_part ="";
+    // println!("{}",args);
+    // println!("{}", file_part);
     // println!("{}", args);
     let mut new_files = Vec::new();
     let mut string_args = String::new();
     let mut single_quote = false;
     let mut double_quote = false;
-    for char in args.chars() {
+    let mut err = false;
+    for char in args.trim().chars() {
+        // println!("single:{}", single_quote);
+        // println!("double: {}", double_quote);
         if char == '"' && !single_quote {
             double_quote = !double_quote;
 
@@ -209,7 +325,7 @@ fn handle_cat(args: String) {
 
             continue;
         }
-        if char == ' ' && !single_quote {
+        if char == ' ' && !single_quote && !double_quote {
             if !string_args.is_empty() {
                 new_files.push(string_args.to_string());
                 string_args = String::new();
@@ -218,21 +334,40 @@ fn handle_cat(args: String) {
             string_args.push(char);
         }
     }
-    // println!("{}", string_args);
+    // println!("{}", single_quote);
+    // println!("{}", double_quote);
+
     if !string_args.is_empty() {
-        new_files.push(string_args.strip_suffix("\n").unwrap().to_string());
+        new_files.push(string_args.to_string());
     }
     // println!("{:?}", new_files);
     for file in new_files {
         //    println!("{}", file);
         match fs::read_to_string(&file) {
             Ok(contents) => {
-                print!("{}", contents);
+                if file_part.is_empty() {
+                    print!("{}", contents.trim());
+                }
+
+                if !file_part.is_empty() {
+                    // println!("{}", contents.trim());
+                    match fs::write(&file_part, contents.trim()) {
+                        Ok(_) => {}
+                        Err(_) => {
+                            println!("cat: {}: No such file or directory 1", file_part);
+                            err = true;
+                        }
+                    }
+                }
             }
             Err(_) => {
                 println!("cat: {}: No such file or directory", file);
+                err = true;
             }
         }
+    }
+    if err == false && file_part.is_empty() {
+        println!();
     }
 }
 
@@ -264,11 +399,12 @@ fn main() {
 
         stdin.read_line(&mut input).unwrap();
         match input_parse(&input) {
+            Command::LS { from, to } => handle_ls(&from, &to),
             Command::EXECCAT(args) => handle_exec_cat(args),
             Command::CAT(args) => handle_cat(args),
             Command::CD(path) => handle_cd(&path),
             Command::PWD(path) => println!("{}", path),
-            Command::Echo(args) => handle_echo(&args),
+            Command::Echo { arg, files } => handle_echo(&arg, &files),
             Command::Exit => handle_exit(),
             Command::Type(cmd) => match cmd {
                 TypeCommand::CD => println!("cd is a shell builtin"),
