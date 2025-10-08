@@ -335,11 +335,19 @@ fn handle_cat(args: String) {
     if args.is_empty() {
         println!("cat: missing file operand");
         return;
+    
     }
+
+    let mut to_append = false;
     let mut redirect_to_err = false;
     if args.contains("2>") {
         redirect_to_err = true;
     }
+    if args.contains(">>") || args.contains("1>>") {
+        to_append = true;
+ 
+    }
+    
     // println!("{}",args);
     let (mut args, file_part) = handle_redirect(&args);
     // let file_part ="";
@@ -505,3 +513,13 @@ fn main() {
         }
     }
 }
+
+
+
+// fn parse(input: &str) {
+//    let cmd =String::new();
+//    let  cmds =  
+
+   
+
+// }
