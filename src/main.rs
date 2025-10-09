@@ -11,9 +11,9 @@ use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
-use rustyline::history::DefaultHistory;
+use rustyline::history::{DefaultHistory, History};
 use rustyline::validate::Validator;
-use rustyline::{ Editor, Helper};
+use rustyline::{Config, Context, Editor, Helper};
 #[derive(Debug)]
 enum RedirectType {
     Stdout,
@@ -81,19 +81,21 @@ impl Completer for AutoCompiler {
                 });
             }
         }
-
-         for cmd in self.get_path_commands() {
+        let mut cmds = self.get_path_commands();
+        cmds.sort();
+        for cmd in cmds {
             if cmd.starts_with(prefix) {
                 matches.push(Pair {
-                    display: format!("{} ",cmd).clone(),
-                    replacement: format!("{} ",cmd).clone(),
+                    display: cmd.clone(),
+                    replacement: format!("{} ",cmd),
                 });
             }
         }
-
+        // println!("{:?}",matches); // Removed because Pair does not implement Debug
         Ok((0, matches))
     }
 }
+
 impl AutoCompiler {
     fn new() -> Self {
         Self {
@@ -124,6 +126,7 @@ impl AutoCompiler {
                 }
             }
         }
+        // println!("{:?}",cmds);
         cmds
     }
 }
@@ -224,7 +227,10 @@ fn handle_args(args: Vec<String>) -> (Vec<String>, Vec<Redirect>) {
 }
 
 fn main() {
- let mut r1 = Editor::<AutoCompiler,DefaultHistory>::new().unwrap();
+    let config = Config::builder()
+        .completion_type(rustyline::CompletionType::List) // <- this is the key
+        .build();
+    let mut r1 = Editor::with_config(config).unwrap();
     r1.set_helper(Some(AutoCompiler::new()));
     loop {
         match r1.readline("$ ") {
