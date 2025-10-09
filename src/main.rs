@@ -1,9 +1,10 @@
 use std::fs::OpenOptions;
+use std::io::Stdin;
 #[allow(unused_imports)]
 use std::io::{self, Write};
 
 use std::path::Path;
-use std::process::{self};
+use std::process::{self, Child, Command, Stdio};
 use std::str::FromStr;
 use std::{fs, os::unix::fs::PermissionsExt};
 
@@ -11,9 +12,9 @@ use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
-use rustyline::history::{DefaultHistory, History};
+
 use rustyline::validate::Validator;
-use rustyline::{Config, Context, Editor, Helper};
+use rustyline::{Config, Editor, Helper};
 #[derive(Debug)]
 enum RedirectType {
     Stdout,
@@ -87,7 +88,7 @@ impl Completer for AutoCompiler {
             if cmd.starts_with(prefix) {
                 matches.push(Pair {
                     display: cmd.clone(),
-                    replacement: format!("{} ",cmd),
+                    replacement: format!("{} ", cmd),
                 });
             }
         }
@@ -243,7 +244,12 @@ fn main() {
                 // print!("{}", input);
 
                 let mut args = parse(&input);
+
                 // println!("{:?}", args);
+                let mut pipe = false;
+                if input.contains(&"|".to_string()) {
+                    pipe = true;
+                }
                 let command = args.remove(0);
                 let new_command = &command;
 
@@ -251,9 +257,13 @@ fn main() {
                 let (new_args, redir) = handle_args(args.clone());
                 // println!("{:?}", new_args);
                 // println!("{:?}", re);
-
-                let command = command.parse::<ShellCommand>().unwrap();
-                match command {
+                let n_command;
+                if pipe {
+                    n_command = ShellCommand::Unknown;
+                } else {
+                    n_command = command.parse::<ShellCommand>().unwrap();
+                }
+                match n_command {
                     ShellCommand::Echo => {
                         handle_echo(new_args, redir);
                     }
@@ -265,8 +275,11 @@ fn main() {
                     ShellCommand::Type => handle_type(new_args),
                     ShellCommand::Unknown => {
                         // let command = args.remove(0);
-
-                        handle_unknown(new_command.to_string(), new_args, redir)
+                        if pipe {
+                            run_pipe(input);
+                        } else {
+                            handle_unknown(new_command.to_string(), new_args, redir)
+                        }
                     }
                 }
             }
@@ -537,4 +550,49 @@ fn find_exec_function(path: &str) -> String {
     }
 
     res
+}
+
+fn run_pipe(input: &str) {
+    let parts = input.split('|').map(str::trim).collect::<Vec<_>>();
+    let mut previous = None;
+    let mut children = Vec::new();
+
+    for (i, cmd) in parts.iter().enumerate() {
+        let mut args = parse(cmd);
+        if args.is_empty() {
+            continue;
+        }
+
+        let new_cmd = args.remove(0);
+        let mut child = Command::new(new_cmd);
+        child.args(&args);
+
+        if let Some(stdin) = previous.take() {
+            child.stdin(stdin);
+        }
+
+        // Pipe if not last command
+        let stdout = if i < parts.len() - 1 {
+            Stdio::piped()
+        } else {
+            Stdio::inherit()
+        };
+        child.stdout(stdout);
+
+        let mut child = match child.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                return;
+            }
+        };
+
+        previous = child.stdout.take().map(Stdio::from);
+        children.push(child);
+    }
+
+    // Wait for all processes to complete
+    for mut child in children {
+        let _ = child.wait();
+    }
 }
