@@ -2,17 +2,18 @@ use std::fs::OpenOptions;
 #[allow(unused_imports)]
 use std::io::{self, Write};
 
+use std::path::Path;
 use std::process::{self};
 use std::str::FromStr;
 use std::{fs, os::unix::fs::PermissionsExt};
-use std::path::{Path};
 
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
 use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
+use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
-use rustyline::{Editor, Helper};
+use rustyline::{ Editor, Helper};
 #[derive(Debug)]
 enum RedirectType {
     Stdout,
@@ -55,6 +56,7 @@ impl FromStr for ShellCommand {
 struct AutoCompiler {
     commands: Vec<String>,
 }
+
 impl Helper for AutoCompiler {}
 impl Validator for AutoCompiler {}
 impl Highlighter for AutoCompiler {}
@@ -80,10 +82,51 @@ impl Completer for AutoCompiler {
             }
         }
 
+         for cmd in self.get_path_commands() {
+            if cmd.starts_with(prefix) {
+                matches.push(Pair {
+                    display: format!("{} ",cmd).clone(),
+                    replacement: format!("{} ",cmd).clone(),
+                });
+            }
+        }
+
         Ok((0, matches))
     }
 }
-
+impl AutoCompiler {
+    fn new() -> Self {
+        Self {
+            commands: vec![
+                "echo ".into(),
+                "pwd ".into(),
+                "cd ".into(),
+                "type ".into(),
+                "exit ".into(),
+            ],
+        }
+    }
+    fn get_path_commands(&self) -> Vec<String> {
+        let mut cmds = Vec::new();
+        if let Ok(paths) = std::env::var("PATH") {
+            for p in paths.split(':') {
+                let dir = Path::new(p);
+                if let Ok(entries) = fs::read_dir(dir) {
+                    for entry in entries.flatten() {
+                        if let Ok(ft) = entry.file_type() {
+                            if ft.is_file() {
+                                if let Some(name) = entry.file_name().to_str() {
+                                    cmds.push(name.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        cmds
+    }
+}
 //
 fn parse(input: &str) -> Vec<String> {
     let mut args = Vec::new();
@@ -181,17 +224,8 @@ fn handle_args(args: Vec<String>) -> (Vec<String>, Vec<Redirect>) {
 }
 
 fn main() {
-    let mut r1 = Editor::<AutoCompiler, rustyline::history::DefaultHistory>::new().unwrap();
-    let completer = AutoCompiler {
-        commands: vec![
-            "echo ".into(),
-            "pwd ".into(),
-            "cd ".into(),
-            "type ".into(),
-            "exit ".into(),
-        ],
-    };
-    r1.set_helper(Some(completer));
+ let mut r1 = Editor::<AutoCompiler,DefaultHistory>::new().unwrap();
+    r1.set_helper(Some(AutoCompiler::new()));
     loop {
         match r1.readline("$ ") {
             Ok(line) => {
@@ -205,7 +239,7 @@ fn main() {
                 let mut args = parse(&input);
                 // println!("{:?}", args);
                 let command = args.remove(0);
-                let  new_command = &command;
+                let new_command = &command;
 
                 // println!("{}", command);
                 let (new_args, redir) = handle_args(args.clone());
@@ -247,8 +281,6 @@ fn main() {
         }
     }
 }
-
-
 
 fn open_file_for_redirect(target: &str, append: bool) -> std::fs::File {
     let path = Path::new(target);
@@ -500,6 +532,3 @@ fn find_exec_function(path: &str) -> String {
 
     res
 }
-
-
-
