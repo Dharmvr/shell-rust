@@ -5,8 +5,6 @@ interpreting shell commands, running external programs and builtin commands like
 cd, pwd, echo and more. Along the way, you'll learn about shell command parsing,
 REPLs, builtin commands, and more.
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
 
 # Passing the first stage
 
