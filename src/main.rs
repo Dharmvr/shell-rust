@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::io::Stdin;
+use std::io::{Read, Stdin};
 #[allow(unused_imports)]
 use std::io::{self, Write};
 
@@ -500,6 +500,8 @@ fn handle_type(args: Vec<String>) {
         }
     }
 }
+
+
 fn handle_exec_function(path: &str) -> String {
     let dir_paths = std::env::var("PATH").unwrap_or_default();
     let dir_paths = dir_paths.split(':').collect::<Vec<&str>>();
@@ -552,47 +554,113 @@ fn find_exec_function(path: &str) -> String {
     res
 }
 
+
+fn handle_builtin(command: ShellCommand, args: Vec<String>, writer: &mut impl Write) {
+    match command {
+        ShellCommand::Echo => handle_echo_cap(args, writer),
+        ShellCommand::Pwd => handle_pwd_cap(writer),
+        ShellCommand::Type => handle_type_with_writer(args, writer),
+        ShellCommand::Cd => handle_cd(args),
+        ShellCommand::Exit => handle_exit(),
+        ShellCommand::Unknown => ()
+    }
+}
+
+// Example built-in modifications
+fn handle_echo_cap(args: Vec<String>, writer: &mut impl Write) {
+    let text = args.join(" ") + "\n";
+    let _ = writer.write_all(text.as_bytes());
+}
+
+fn handle_pwd_cap(writer: &mut impl Write) {
+    if let Ok(path) = std::env::current_dir() {
+        let _ = writeln!(writer, "{}", path.display());
+    }
+}
+
+// Wrap your existing handle_type
+fn handle_type_with_writer(args: Vec<String>, writer: &mut impl Write) {
+    if args.is_empty() { return; }
+    let cmd = &args[0];
+    let parsed = cmd.parse::<ShellCommand>().unwrap_or(ShellCommand::Unknown);
+    if parsed != ShellCommand::Unknown {
+        let _ = writeln!(writer, "{} is a shell builtin", cmd);
+    } else {
+        let result = handle_exec_function(cmd); // your existing function
+        if !result.is_empty() {
+            let _ = writeln!(writer, "{} is {}", cmd, result);
+        } else {
+            let _ = writeln!(writer, "{} not found", cmd);
+        }
+    }
+}
+
+
+
 fn run_pipe(input: &str) {
-    let parts = input.split('|').map(str::trim).collect::<Vec<_>>();
-    let mut previous = None;
-    let mut children = Vec::new();
+    let parts: Vec<&str> = input.split('|').map(str::trim).collect();
+    let mut previous_output: Option<Vec<u8>> = None;
 
     for (i, cmd) in parts.iter().enumerate() {
         let mut args = parse(cmd);
-        if args.is_empty() {
-            continue;
-        }
+        if args.is_empty() { continue; }
 
-        let new_cmd = args.remove(0);
-        let mut child = Command::new(new_cmd);
-        child.args(&args);
+        let program = args.remove(0);
+        let shell_cmd = program.parse::<ShellCommand>().unwrap_or(ShellCommand::Unknown);
+        let is_last = i == parts.len() - 1;
 
-        if let Some(stdin) = previous.take() {
-            child.stdin(stdin);
-        }
+        match shell_cmd {
+            // Built-ins that produce output
+            ShellCommand::Echo | ShellCommand::Pwd | ShellCommand::Type => {
+                let mut buffer = Vec::new();
+                handle_builtin(shell_cmd, args.clone(), &mut buffer);
 
-        // Pipe if not last command
-        let stdout = if i < parts.len() - 1 {
-            Stdio::piped()
-        } else {
-            Stdio::inherit()
-        };
-        child.stdout(stdout);
-
-        let mut child = match child.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Error: {}", e);
-                return;
+                if is_last {
+                    io::stdout().write_all(&buffer).unwrap();
+                } else {
+                    previous_output = Some(buffer);
+                }
             }
-        };
 
-        previous = child.stdout.take().map(Stdio::from);
-        children.push(child);
-    }
+            // External commands or unknown
+            ShellCommand::Cd | ShellCommand::Exit | ShellCommand::Unknown => {
+                let mut command = Command::new(program);
+                command.args(&args);
 
-    // Wait for all processes to complete
-    for mut child in children {
-        let _ = child.wait();
+                // Feed previous output into stdin if present
+                if let Some(data) = previous_output.take() {
+                    let mut child = command
+                        .stdin(Stdio::piped())
+                        .stdout(if is_last { Stdio::inherit() } else { Stdio::piped() })
+                        .spawn()
+                        .unwrap();
+
+                    child.stdin.as_mut().unwrap().write_all(&data).unwrap();
+
+                    if !is_last {
+                        let mut buf = Vec::new();
+                        child.stdout.as_mut().unwrap().read_to_end(&mut buf).unwrap();
+                        previous_output = Some(buf);
+                    }
+
+                    child.wait().unwrap();
+                } else {
+                    let mut child = command
+                        .stdout(if is_last { Stdio::inherit() } else { Stdio::piped() })
+                        .spawn()
+                        .unwrap();
+
+                    if !is_last {
+                        let mut buf = Vec::new();
+                        child.stdout.as_mut().unwrap().read_to_end(&mut buf).unwrap();
+                        previous_output = Some(buf);
+                    }
+
+                    child.wait().unwrap();
+                }
+            }
+
+            ShellCommand::Exit => handle_exit(),
+        }
     }
 }
